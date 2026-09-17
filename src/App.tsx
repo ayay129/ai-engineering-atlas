@@ -4,9 +4,7 @@ import {
   Boxes,
   ChevronRight,
   Cpu,
-  GitBranch,
   Layers3,
-  MonitorCog,
   Network,
   Search,
   Workflow,
@@ -20,8 +18,26 @@ import {
   timeline,
   type Status,
 } from './data'
+import './overview.css'
 
 type Section = 'overview' | 'capabilities' | 'benchmarks' | 'pipelines' | 'projects' | 'timeline'
+type GraphNodeType = 'capability' | 'pipeline' | 'project'
+
+type GraphNode = {
+  id: string
+  label: string
+  type: GraphNodeType
+  x: number
+  y: number
+  subtitle?: string
+}
+
+type GraphEdge = {
+  id: string
+  source: string
+  target: string
+  path: string
+}
 
 const sections: { id: Section; label: string }[] = [
   { id: 'overview', label: '总览' },
@@ -37,6 +53,31 @@ const statusText: Record<Status, string> = {
   testing: 'Testing',
   development: 'Development',
 }
+
+const graphNodes: GraphNode[] = [
+  { id: 'object-detection', label: '目标检测', type: 'capability', x: 110, y: 118, subtitle: 'CV' },
+  { id: 'image-embedding', label: '图向量', type: 'capability', x: 305, y: 118, subtitle: 'CV' },
+  { id: 'face-recognition', label: '人脸识别', type: 'capability', x: 500, y: 118, subtitle: 'CV' },
+  { id: 'ocr', label: 'OCR', type: 'capability', x: 695, y: 118, subtitle: 'CV' },
+  { id: 'asr', label: 'ASR', type: 'capability', x: 890, y: 118, subtitle: 'Audio' },
+  { id: 'video-analysis', label: '视频智能分析聚合服务', type: 'pipeline', x: 430, y: 315, subtitle: 'Aggregated Service' },
+  { id: 'video-review-platform', label: '视频智能研判平台', type: 'project', x: 300, y: 520, subtitle: 'Project' },
+  { id: 'ascend-adaptation', label: '昇腾算法能力适配', type: 'project', x: 735, y: 520, subtitle: 'Direct Project' },
+]
+
+const graphEdges: GraphEdge[] = [
+  { id: 'od-pipeline', source: 'object-detection', target: 'video-analysis', path: 'M110 151 C110 230 430 220 430 280' },
+  { id: 'embed-pipeline', source: 'image-embedding', target: 'video-analysis', path: 'M305 151 C305 225 430 225 430 280' },
+  { id: 'face-pipeline', source: 'face-recognition', target: 'video-analysis', path: 'M500 151 C500 225 430 225 430 280' },
+  { id: 'ocr-pipeline', source: 'ocr', target: 'video-analysis', path: 'M695 151 C695 225 430 220 430 280' },
+  { id: 'asr-pipeline', source: 'asr', target: 'video-analysis', path: 'M890 151 C890 230 430 210 430 280' },
+  { id: 'pipeline-video-project', source: 'video-analysis', target: 'video-review-platform', path: 'M430 350 C430 430 300 430 300 485' },
+  { id: 'od-ascend', source: 'object-detection', target: 'ascend-adaptation', path: 'M110 151 C110 340 735 340 735 485' },
+  { id: 'embed-ascend', source: 'image-embedding', target: 'ascend-adaptation', path: 'M305 151 C305 330 735 350 735 485' },
+  { id: 'face-ascend', source: 'face-recognition', target: 'ascend-adaptation', path: 'M500 151 C500 325 735 365 735 485' },
+  { id: 'ocr-ascend', source: 'ocr', target: 'ascend-adaptation', path: 'M695 151 C695 320 735 390 735 485' },
+  { id: 'asr-ascend', source: 'asr', target: 'ascend-adaptation', path: 'M890 151 C890 320 735 390 735 485' },
+]
 
 function StatusDot({ status }: { status: Status }) {
   return (
@@ -57,6 +98,113 @@ function SectionIntro({ eyebrow, title, description }: { eyebrow: string; title:
   )
 }
 
+function getNodeStatus(node: GraphNode): Status | undefined {
+  if (node.type === 'capability') return capabilities.find((item) => item.id === node.id)?.status
+  if (node.type === 'pipeline') return pipelines.find((item) => item.id === node.id)?.status
+  return projects.find((item) => item.id === node.id)?.status
+}
+
+function getRelatedGraph(startId: string | null) {
+  const nodeIds = new Set<string>()
+  const edgeIds = new Set<string>()
+  if (!startId) return { nodeIds, edgeIds }
+
+  nodeIds.add(startId)
+
+  const walkUp = (id: string) => {
+    graphEdges.filter((edge) => edge.target === id).forEach((edge) => {
+      if (edgeIds.has(edge.id)) return
+      edgeIds.add(edge.id)
+      nodeIds.add(edge.source)
+      walkUp(edge.source)
+    })
+  }
+
+  const walkDown = (id: string) => {
+    graphEdges.filter((edge) => edge.source === id).forEach((edge) => {
+      if (edgeIds.has(edge.id)) return
+      edgeIds.add(edge.id)
+      nodeIds.add(edge.target)
+      walkDown(edge.target)
+    })
+  }
+
+  walkUp(startId)
+  walkDown(startId)
+  return { nodeIds, edgeIds }
+}
+
+function ValueGraph() {
+  const [hoveredNode, setHoveredNode] = useState<string | null>(null)
+  const [lockedNode, setLockedNode] = useState<string | null>(null)
+  const focusedNode = hoveredNode ?? lockedNode
+  const related = getRelatedGraph(focusedNode)
+
+  return (
+    <section className="value-graph-section">
+      <div className="graph-header">
+        <div>
+          <div className="eyebrow">VALUE GRAPH</div>
+          <h2>能力如何流向项目</h2>
+          <p>聚合服务是可选层。项目既可以使用组合服务，也可以直接复用原子算法。</p>
+        </div>
+        <div className="graph-summary">{capabilities.length} 原子能力 · {pipelines.length} 聚合服务 · {projects.length} 项目</div>
+      </div>
+
+      <div className="graph-scroll">
+        <div className="value-graph-canvas" onClick={() => setLockedNode(null)}>
+          <div className="graph-layer-label layer-capability">原子算法</div>
+          <div className="graph-layer-label layer-pipeline">聚合服务</div>
+          <div className="graph-layer-label layer-project">项目交付</div>
+
+          <svg className="graph-lines" viewBox="0 0 1000 600" aria-hidden="true">
+            {graphEdges.map((edge) => {
+              const isActive = focusedNode ? related.edgeIds.has(edge.id) : false
+              const isDimmed = focusedNode ? !isActive : false
+              return (
+                <path
+                  key={edge.id}
+                  d={edge.path}
+                  className={`graph-edge ${isActive ? 'is-active' : ''} ${isDimmed ? 'is-dimmed' : ''}`}
+                />
+              )
+            })}
+          </svg>
+
+          {graphNodes.map((node) => {
+            const status = getNodeStatus(node)
+            const isRelated = !focusedNode || related.nodeIds.has(node.id)
+            const isFocused = focusedNode === node.id
+            const isLocked = lockedNode === node.id
+            return (
+              <button
+                key={node.id}
+                type="button"
+                className={`graph-node graph-node-${node.type} ${isRelated ? '' : 'is-dimmed'} ${isFocused ? 'is-focused' : ''} ${isLocked ? 'is-locked' : ''}`}
+                style={{ left: node.x, top: node.y }}
+                onMouseEnter={() => setHoveredNode(node.id)}
+                onMouseLeave={() => setHoveredNode(null)}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  setLockedNode((current) => current === node.id ? null : node.id)
+                }}
+              >
+                <span className="graph-node-title">{node.label}</span>
+                <span className="graph-node-meta">
+                  {status && <span className={`mini-dot status-${status}`} />}
+                  {node.subtitle}
+                </span>
+              </button>
+            )
+          })}
+
+          <div className="graph-hint">悬停查看上下游路径 · 点击节点可锁定</div>
+        </div>
+      </div>
+    </section>
+  )
+}
+
 function App() {
   const [section, setSection] = useState<Section>('overview')
   const [query, setQuery] = useState('')
@@ -71,11 +219,6 @@ function App() {
         .includes(value),
     )
   }, [query])
-
-  const consumerCount = new Set([
-    ...capabilities.flatMap((item) => item.consumers),
-    ...pipelines.flatMap((item) => item.consumers),
-  ]).size
 
   return (
     <div className="app-shell">
@@ -104,81 +247,15 @@ function App() {
       <main className="main-content">
         {section === 'overview' && (
           <div className="page overview-page">
-            <section className="overview-hero">
+            <section className="overview-hero overview-hero-compact">
               <div className="eyebrow">ENGINEERING VALUE</div>
               <h1>让算法工作的价值，<br />一眼可见。</h1>
-              <p>从原子算法、硬件适配和测试验证，到聚合服务与项目交付。这里记录的是能力如何被复用并产生业务价值。</p>
+              <p>从原子能力到业务项目，直接看到用了哪些算法、怎么组合，以及最终支撑了哪些交付。</p>
             </section>
 
-            <section className="value-strip" aria-label="工程价值链">
-              <button className="value-step" onClick={() => setSection('capabilities')}>
-                <span className="value-number">{capabilities.length}</span>
-                <span className="value-label">原子算法能力</span>
-                <small>CV · Audio</small>
-              </button>
-              <span className="value-arrow">→</span>
-              <button className="value-step" onClick={() => setSection('benchmarks')}>
-                <span className="value-number">2</span>
-                <span className="value-label">算力平台</span>
-                <small>NVIDIA · Ascend</small>
-              </button>
-              <span className="value-arrow">→</span>
-              <button className="value-step" onClick={() => setSection('pipelines')}>
-                <span className="value-number">{pipelines.length}</span>
-                <span className="value-label">聚合服务</span>
-                <small>统一业务接口</small>
-              </button>
-              <span className="value-arrow">→</span>
-              <button className="value-step" onClick={() => setSection('projects')}>
-                <span className="value-number">{projects.length}</span>
-                <span className="value-label">项目交付</span>
-                <small>{consumerCount} 个可见业务消费者</small>
-              </button>
-            </section>
+            <ValueGraph />
 
-            <section className="overview-columns">
-              <div className="content-group">
-                <div className="group-title">
-                  <div>
-                    <div className="eyebrow">CAPABILITIES</div>
-                    <h2>基础能力</h2>
-                  </div>
-                  <button className="text-button" onClick={() => setSection('capabilities')}>查看全部 <ChevronRight size={15} /></button>
-                </div>
-
-                <div className="plain-list">
-                  {capabilities.map((item) => {
-                    const pipelineUse = pipelines.filter((p) => p.capabilities.includes(item.id)).length
-                    const projectUse = projects.filter((p) => p.capabilities.includes(item.id)).length
-                    return (
-                      <button className="plain-row" key={item.id} onClick={() => setSection('capabilities')}>
-                        <span className="row-icon">{item.category === 'Audio' ? <AudioLines size={17} /> : <Boxes size={17} />}</span>
-                        <span className="row-main">
-                          <strong>{item.name}</strong>
-                          <small>{item.models.join(' · ')}</small>
-                        </span>
-                        <span className="row-note">{pipelineUse} 聚合 · {projectUse} 项目</span>
-                        <StatusDot status={item.status} />
-                        <ChevronRight className="row-chevron" size={16} />
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-
-              <aside className="signal-panel">
-                <div className="eyebrow">CURRENT FOCUS</div>
-                <h2>跨硬件工程化</h2>
-                <p>同一套算法能力覆盖 NVIDIA 与昇腾环境，并持续沉淀性能、精度和资源消耗数据。</p>
-                <div className="platform-pair">
-                  <span><Cpu size={17} /> NVIDIA</span>
-                  <span><Cpu size={17} /> Ascend</span>
-                </div>
-                <button className="primary-link" onClick={() => setSection('benchmarks')}>查看 Benchmark <ChevronRight size={15} /></button>
-              </aside>
-            </section>
-
-            <section className="recent-work">
+            <section className="recent-work overview-recent">
               <div className="group-title">
                 <div>
                   <div className="eyebrow">RECENT</div>
