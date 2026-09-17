@@ -53,7 +53,7 @@
 .expanded-graph-canvas::before { top: 216px; }
 .expanded-graph-canvas::after { top: 410px; }
 .graph-layer-label { position: absolute; left: 28px; color: var(--tertiary); font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; z-index: 3; }
-.graph-label-capability { top: 84px; }
+.graph-label-capability { top: 56px; }
 .graph-label-pipeline { top: 281px; }
 .graph-label-project { top: 486px; }
 .expanded-lines { position: absolute; inset: 0; width: 100%; height: 100%; }
