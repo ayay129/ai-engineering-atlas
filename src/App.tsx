@@ -1,33 +1,31 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
-  AudioLines,
   Boxes,
   ChevronRight,
+  CirclePlus,
   Cpu,
-  Layers3,
   Network,
+  Plus,
+  Save,
   Search,
+  Trash2,
   Workflow,
-  X,
 } from 'lucide-react'
 import {
+  algorithms as seedAlgorithms,
   benchmarks,
-  capabilities,
-  capabilityName,
   pipelines,
   projects,
   timeline,
+  type Algorithm,
+  type AlgorithmCategory,
+  type PlatformImplementation,
   type Status,
 } from './data'
 import './overview.css'
+import './algorithm-editor.css'
 
 type Section = 'overview' | 'capabilities' | 'benchmarks' | 'pipelines' | 'projects' | 'timeline'
-
-type ProjectRoute = {
-  projectId: string
-  capabilityIds: string[]
-  pipelineId?: string
-}
 
 const sections: { id: Section; label: string }[] = [
   { id: 'overview', label: '总览' },
@@ -38,23 +36,46 @@ const sections: { id: Section; label: string }[] = [
   { id: 'timeline', label: '时间线' },
 ]
 
-const projectRoutes: ProjectRoute[] = [
-  {
-    projectId: 'video-review-platform',
-    capabilityIds: ['object-detection', 'image-embedding', 'face-recognition', 'ocr', 'asr'],
-    pipelineId: 'video-analysis',
-  },
-  {
-    projectId: 'ascend-adaptation',
-    capabilityIds: ['object-detection', 'image-embedding', 'face-recognition', 'ocr', 'asr'],
-  },
-]
-
 const statusText: Record<Status, string> = {
   production: 'Production',
   testing: 'Testing',
   development: 'Development',
+  deprecated: 'Deprecated',
 }
+
+const emptyPlatform = (platform = ''): PlatformImplementation => ({
+  id: crypto.randomUUID(),
+  platform,
+  status: 'development',
+  hardware: '',
+  serviceVersion: '',
+  gitlab: '',
+  branch: '',
+  modelName: '',
+  modelVersion: '',
+  runtime: '',
+  framework: '',
+  image: '',
+  containerPort: '',
+  healthcheck: '',
+})
+
+const emptyAlgorithm = (): Algorithm => ({
+  id: crypto.randomUUID(),
+  name: '',
+  englishName: '',
+  category: 'CV',
+  status: 'development',
+  description: '',
+  owner: '',
+  api: {
+    protocol: 'HTTP',
+    method: 'POST',
+    endpoint: '',
+  },
+  implementations: [emptyPlatform('NVIDIA'), emptyPlatform('Ascend')],
+  updatedAt: '',
+})
 
 function StatusDot({ status }: { status: Status }) {
   return (
@@ -65,127 +86,169 @@ function StatusDot({ status }: { status: Status }) {
   )
 }
 
-function SectionIntro({ eyebrow, title, description }: { eyebrow: string; title: string; description: string }) {
+function EmptyState({ title, description }: { title: string; description: string }) {
   return (
-    <header className="section-intro">
-      <div className="eyebrow">{eyebrow}</div>
-      <h1>{title}</h1>
+    <div className="empty-state">
+      <div className="empty-symbol"><Network size={18} /></div>
+      <h2>{title}</h2>
       <p>{description}</p>
-    </header>
-  )
-}
-
-function MiniProjectGraph({ route }: { route: ProjectRoute }) {
-  const project = projects.find((item) => item.id === route.projectId)!
-  const pipeline = route.pipelineId ? pipelines.find((item) => item.id === route.pipelineId) : undefined
-
-  return (
-    <div className={`mini-project-graph ${pipeline ? 'has-pipeline' : 'direct-project'}`}>
-      <div className="mini-layer mini-capabilities">
-        {route.capabilityIds.map((id) => (
-          <span className="mini-node" key={id}>{capabilityName(id)}</span>
-        ))}
-      </div>
-
-      <div className="mini-connectors" aria-hidden="true">
-        {route.capabilityIds.map((_, index) => <i key={index} />)}
-      </div>
-
-      {pipeline ? (
-        <>
-          <div className="mini-layer mini-pipeline"><span>{pipeline.name}</span></div>
-          <div className="mini-trunk" aria-hidden="true" />
-        </>
-      ) : (
-        <div className="mini-direct-label">Direct</div>
-      )}
-
-      <div className="mini-layer mini-project"><span>{project.name}</span></div>
     </div>
   )
 }
 
-function ProjectGraphCard({ route, onOpen }: { route: ProjectRoute; onOpen: () => void }) {
-  const project = projects.find((item) => item.id === route.projectId)!
-  const pipeline = route.pipelineId ? pipelines.find((item) => item.id === route.pipelineId) : undefined
-
+function Field({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
   return (
-    <button className="project-graph-card" type="button" onClick={onOpen}>
-      <div className="project-card-top">
-        <div>
-          <div className="eyebrow">PROJECT</div>
-          <h3>{project.name}</h3>
-        </div>
-        <StatusDot status={project.status} />
-      </div>
-
-      <MiniProjectGraph route={route} />
-
-      <div className="project-card-foot">
-        <span>{route.capabilityIds.length} 个算法{pipeline ? ` · 1 个聚合服务` : ' · 直接组合'}</span>
-        <span className="open-label">展开 <ChevronRight size={14} /></span>
-      </div>
-    </button>
+    <label className="editor-field">
+      <span className="editor-label">{label}</span>
+      {children}
+      {hint && <span className="editor-hint">{hint}</span>}
+    </label>
   )
 }
 
-function ExpandedProjectGraph({ route, onClose }: { route: ProjectRoute; onClose: () => void }) {
-  const project = projects.find((item) => item.id === route.projectId)!
-  const pipeline = route.pipelineId ? pipelines.find((item) => item.id === route.pipelineId) : undefined
-  const xs = [120, 310, 500, 690, 880]
-  const capabilityNodes = route.capabilityIds.map((id, index) => ({ id, x: xs[index] ?? 120 + index * 150 }))
-  const targetX = pipeline ? 500 : 690
-  const targetY = pipeline ? 310 : 510
+function PlatformEditor({
+  value,
+  onChange,
+  onRemove,
+}: {
+  value: PlatformImplementation
+  onChange: (value: PlatformImplementation) => void
+  onRemove: () => void
+}) {
+  const patch = (changes: Partial<PlatformImplementation>) => onChange({ ...value, ...changes })
 
   return (
-    <div className="project-modal-backdrop" onClick={onClose}>
-      <section className="project-modal" onClick={(event) => event.stopPropagation()}>
-        <header className="project-modal-header">
-          <div>
-            <div className="eyebrow">PROJECT VALUE GRAPH</div>
-            <h2>{project.name}</h2>
-            <p>{project.problem}</p>
+    <article className="platform-editor-card">
+      <header className="platform-editor-head">
+        <div>
+          <div className="platform-title-line">
+            <Cpu size={17} />
+            <input
+              className="platform-name-input"
+              placeholder="平台名称，如 NVIDIA"
+              value={value.platform}
+              onChange={(event) => patch({ platform: event.target.value })}
+            />
           </div>
-          <button className="modal-close" type="button" onClick={onClose} aria-label="关闭"><X size={18} /></button>
-        </header>
+          <p>这个平台上的独立工程实现。</p>
+        </div>
+        <div className="platform-actions">
+          <select value={value.status} onChange={(event) => patch({ status: event.target.value as Status })}>
+            <option value="development">Development</option>
+            <option value="testing">Testing</option>
+            <option value="production">Production</option>
+            <option value="deprecated">Deprecated</option>
+          </select>
+          <button className="icon-button" type="button" onClick={onRemove} aria-label="删除平台"><Trash2 size={15} /></button>
+        </div>
+      </header>
 
-        <div className="expanded-graph-canvas">
-          <div className="graph-layer-label graph-label-capability">原子算法</div>
-          <div className="graph-layer-label graph-label-pipeline">聚合服务</div>
-          <div className="graph-layer-label graph-label-project">项目交付</div>
+      <div className="platform-editor-grid">
+        <Field label="支持硬件"><input placeholder="A10 / L20" value={value.hardware} onChange={(e) => patch({ hardware: e.target.value })} /></Field>
+        <Field label="服务版本"><input placeholder="v1.4.2" value={value.serviceVersion} onChange={(e) => patch({ serviceVersion: e.target.value })} /></Field>
+        <Field label="GitLab"><input placeholder="gitlab.xxx/cv/detection" value={value.gitlab} onChange={(e) => patch({ gitlab: e.target.value })} /></Field>
+        <Field label="Branch"><input placeholder="main" value={value.branch} onChange={(e) => patch({ branch: e.target.value })} /></Field>
+        <Field label="模型"><input placeholder="YOLO xxx" value={value.modelName} onChange={(e) => patch({ modelName: e.target.value })} /></Field>
+        <Field label="模型版本"><input placeholder="例如 2026.09 / v3" value={value.modelVersion} onChange={(e) => patch({ modelVersion: e.target.value })} /></Field>
+        <Field label="Runtime"><input placeholder="CUDA 12.x / CANN 8.x" value={value.runtime} onChange={(e) => patch({ runtime: e.target.value })} /></Field>
+        <Field label="Framework"><input placeholder="TensorRT / ACL / torch-npu" value={value.framework} onChange={(e) => patch({ framework: e.target.value })} /></Field>
+        <Field label="镜像" hint="填写这个平台当前推荐部署的完整镜像地址。">
+          <input placeholder="harbor.xxx/cv/detection-nvidia:v1.4.2" value={value.image} onChange={(e) => patch({ image: e.target.value })} />
+        </Field>
+        <Field label="容器默认端口"><input placeholder="8000" value={value.containerPort} onChange={(e) => patch({ containerPort: e.target.value })} /></Field>
+        <Field label="Healthcheck"><input placeholder="/health" value={value.healthcheck} onChange={(e) => patch({ healthcheck: e.target.value })} /></Field>
+      </div>
+    </article>
+  )
+}
 
-          <svg className="expanded-lines" viewBox="0 0 1000 600" aria-hidden="true">
-            {capabilityNodes.map((node) => (
-              <path
-                key={`${node.id}-main`}
-                d={`M${node.x} 150 C${node.x} 230 ${targetX} 230 ${targetX} ${targetY - 35}`}
-                className="expanded-edge"
-              />
-            ))}
-            {pipeline && <path d="M500 345 C500 425 500 425 500 485" className="expanded-edge strong" />}
-          </svg>
+function AlgorithmEditor({
+  algorithm,
+  onChange,
+  onSave,
+  onCancel,
+}: {
+  algorithm: Algorithm
+  onChange: (algorithm: Algorithm) => void
+  onSave: () => void
+  onCancel: () => void
+}) {
+  const patch = (changes: Partial<Algorithm>) => onChange({ ...algorithm, ...changes })
 
-          {capabilityNodes.map((node) => {
-            const capability = capabilities.find((item) => item.id === node.id)!
-            return (
-              <div className="expanded-node capability" style={{ left: node.x, top: 116 }} key={node.id}>
-                <strong>{capability.name}</strong>
-                <span><i className={`mini-dot status-${capability.status}`} />{capability.category}</span>
-              </div>
-            )
-          })}
+  return (
+    <div className="algorithm-editor">
+      <div className="editor-toolbar">
+        <button className="back-button" type="button" onClick={onCancel}>算法能力</button>
+        <ChevronRight size={14} />
+        <span>{algorithm.name || '新建算法'}</span>
+        <div className="editor-toolbar-spacer" />
+        <button className="save-button" type="button" onClick={onSave}><Save size={15} />保存</button>
+      </div>
 
-          {pipeline && (
-            <div className="expanded-node pipeline" style={{ left: 500, top: 310 }}>
-              <strong>{pipeline.name}</strong>
-              <span><i className={`mini-dot status-${pipeline.status}`} />Aggregated Service</span>
-            </div>
-          )}
+      <header className="editor-hero">
+        <div className="eyebrow">ALGORITHM CAPABILITY</div>
+        <h1>{algorithm.name || '新建算法能力'}</h1>
+        <p>公共信息描述“这是什么能力”；平台实现描述“它在不同算力平台上如何实现”。</p>
+      </header>
 
-          <div className="expanded-node project" style={{ left: pipeline ? 500 : 690, top: 520 }}>
-            <strong>{project.name}</strong>
-            <span><i className={`mini-dot status-${project.status}`} />{pipeline ? 'Project' : 'Direct Project'}</span>
-          </div>
+      <section className="editor-section">
+        <div className="editor-section-head">
+          <div><span>01</span><h2>基础信息</h2></div>
+          <p>与硬件平台无关的公共信息。</p>
+        </div>
+        <div className="editor-panel editor-grid">
+          <Field label="名称"><input placeholder="目标检测" value={algorithm.name} onChange={(e) => patch({ name: e.target.value })} /></Field>
+          <Field label="英文名"><input placeholder="Object Detection" value={algorithm.englishName} onChange={(e) => patch({ englishName: e.target.value })} /></Field>
+          <Field label="分类">
+            <select value={algorithm.category} onChange={(e) => patch({ category: e.target.value as AlgorithmCategory })}>
+              <option value="CV">CV</option><option value="Audio">Audio</option><option value="Multimodal">Multimodal</option><option value="NLP">NLP</option><option value="Other">Other</option>
+            </select>
+          </Field>
+          <Field label="状态">
+            <select value={algorithm.status} onChange={(e) => patch({ status: e.target.value as Status })}>
+              <option value="development">Development</option><option value="testing">Testing</option><option value="production">Production</option><option value="deprecated">Deprecated</option>
+            </select>
+          </Field>
+          <Field label="Owner"><input placeholder="负责人" value={algorithm.owner} onChange={(e) => patch({ owner: e.target.value })} /></Field>
+          <Field label="描述"><textarea placeholder="图片 / 视频目标检测能力" value={algorithm.description} onChange={(e) => patch({ description: e.target.value })} /></Field>
+        </div>
+      </section>
+
+      <section className="editor-section">
+        <div className="editor-section-head">
+          <div><span>02</span><h2>标准接口</h2></div>
+          <p>不同平台尽量保持一致的业务调用契约。</p>
+        </div>
+        <div className="editor-panel editor-grid api-grid">
+          <Field label="Protocol"><input placeholder="HTTP" value={algorithm.api.protocol} onChange={(e) => patch({ api: { ...algorithm.api, protocol: e.target.value } })} /></Field>
+          <Field label="Method"><input placeholder="POST" value={algorithm.api.method} onChange={(e) => patch({ api: { ...algorithm.api, method: e.target.value } })} /></Field>
+          <Field label="Endpoint"><input placeholder="/api/detection" value={algorithm.api.endpoint} onChange={(e) => patch({ api: { ...algorithm.api, endpoint: e.target.value } })} /></Field>
+        </div>
+      </section>
+
+      <section className="editor-section">
+        <div className="editor-section-head platform-section-head">
+          <div><span>03</span><h2>平台实现</h2></div>
+          <button
+            className="add-platform-button"
+            type="button"
+            onClick={() => patch({ implementations: [...algorithm.implementations, emptyPlatform()] })}
+          ><Plus size={15} />添加平台</button>
+        </div>
+
+        <div className="platform-editor-list">
+          {algorithm.implementations.map((implementation, index) => (
+            <PlatformEditor
+              key={implementation.id}
+              value={implementation}
+              onChange={(next) => {
+                const implementations = [...algorithm.implementations]
+                implementations[index] = next
+                patch({ implementations })
+              }}
+              onRemove={() => patch({ implementations: algorithm.implementations.filter((_, itemIndex) => itemIndex !== index) })}
+            />
+          ))}
         </div>
       </section>
     </div>
@@ -195,42 +258,46 @@ function ExpandedProjectGraph({ route, onClose }: { route: ProjectRoute; onClose
 function App() {
   const [section, setSection] = useState<Section>('overview')
   const [query, setQuery] = useState('')
-  const [openProjectId, setOpenProjectId] = useState<string | null>(null)
+  const [algorithms, setAlgorithms] = useState<Algorithm[]>(() => {
+    const local = localStorage.getItem('atlas.algorithms')
+    if (local) {
+      try { return JSON.parse(local) as Algorithm[] } catch { return seedAlgorithms }
+    }
+    return seedAlgorithms
+  })
+  const [editing, setEditing] = useState<Algorithm | null>(null)
 
-  const filteredCapabilities = useMemo(() => {
+  useEffect(() => {
+    localStorage.setItem('atlas.algorithms', JSON.stringify(algorithms))
+  }, [algorithms])
+
+  const filteredAlgorithms = useMemo(() => {
     const value = query.trim().toLowerCase()
-    if (!value) return capabilities
-    return capabilities.filter((item) =>
-      [item.name, item.description, item.category, ...item.models, ...item.platforms]
-        .join(' ')
-        .toLowerCase()
-        .includes(value),
-    )
-  }, [query])
+    if (!value) return algorithms
+    return algorithms.filter((item) => [item.name, item.englishName, item.category, item.description, ...item.implementations.map((p) => p.platform)].join(' ').toLowerCase().includes(value))
+  }, [algorithms, query])
 
-  const openedRoute = openProjectId ? projectRoutes.find((item) => item.projectId === openProjectId) : undefined
+  const saveAlgorithm = () => {
+    if (!editing) return
+    const saved: Algorithm = { ...editing, updatedAt: new Date().toISOString().slice(0, 10) }
+    setAlgorithms((current) => current.some((item) => item.id === saved.id)
+      ? current.map((item) => item.id === saved.id ? saved : item)
+      : [...current, saved])
+    setEditing(null)
+  }
 
   return (
     <div className="app-shell">
       <header className="glass-nav">
-        <button className="brand-button" onClick={() => setSection('overview')} aria-label="返回总览">
+        <button className="brand-button" onClick={() => { setSection('overview'); setEditing(null) }} aria-label="返回总览">
           <span className="brand-symbol"><Network size={16} strokeWidth={2} /></span>
           <span>AI Engineering Atlas</span>
         </button>
-
         <nav className="nav-tabs" aria-label="主导航">
           {sections.map((item) => (
-            <button
-              key={item.id}
-              className={section === item.id ? 'active' : ''}
-              onClick={() => setSection(item.id)}
-              aria-current={section === item.id ? 'page' : undefined}
-            >
-              {item.label}
-            </button>
+            <button key={item.id} className={section === item.id ? 'active' : ''} onClick={() => { setSection(item.id); setEditing(null) }}>{item.label}</button>
           ))}
         </nav>
-
         <div className="nav-meta">Internal</div>
       </header>
 
@@ -240,182 +307,59 @@ function App() {
             <section className="overview-hero overview-hero-compact">
               <div className="eyebrow">ENGINEERING VALUE</div>
               <h1>项目用了什么，<br />一眼可见。</h1>
-              <p>按项目查看算法组合。每张卡片是一条缩略价值链，点击后展开完整的原子算法 → 聚合服务 → 项目关系。</p>
+              <p>数据已清空。先从算法能力开始录入，后续项目、部署关系和 Benchmark 会基于这些真实数据建立。</p>
             </section>
+            <EmptyState title="还没有项目关系" description="完成算法能力录入后，再开始项目和部署信息。" />
+          </div>
+        )}
 
-            <section className="project-overview-section">
-              <div className="project-overview-head">
-                <div>
-                  <div className="eyebrow">SUPPORTED PROJECTS</div>
-                  <h2>项目关系总览</h2>
-                </div>
-                <span>{projectRoutes.length} 个项目</span>
+        {section === 'capabilities' && !editing && (
+          <div className="page">
+            <div className="capability-page-head">
+              <div>
+                <div className="eyebrow">CAPABILITIES</div>
+                <h1>算法能力</h1>
+                <p>先建立“我有哪些算法能力”，平台实现作为主要工程维度。</p>
               </div>
+              <button className="new-algorithm-button" type="button" onClick={() => setEditing(emptyAlgorithm())}><CirclePlus size={16} />新建算法</button>
+            </div>
 
-              <div className="project-graph-grid">
-                {projectRoutes.map((route) => (
-                  <ProjectGraphCard key={route.projectId} route={route} onOpen={() => setOpenProjectId(route.projectId)} />
+            {algorithms.length > 0 && (
+              <div className="search-field"><Search size={16} /><input placeholder="搜索算法或平台" value={query} onChange={(event) => setQuery(event.target.value)} /></div>
+            )}
+
+            {algorithms.length === 0 ? (
+              <EmptyState title="还没有算法能力" description="点击“新建算法”，从目标检测、OCR、ASR 等真实能力开始录入。" />
+            ) : (
+              <div className="algorithm-list">
+                {filteredAlgorithms.map((item) => (
+                  <button className="algorithm-list-row" key={item.id} onClick={() => setEditing(structuredClone(item))}>
+                    <span className="row-icon large"><Boxes size={19} /></span>
+                    <span className="algorithm-list-main">
+                      <span className="algorithm-name-line"><strong>{item.name}</strong><StatusDot status={item.status} /></span>
+                      <small>{item.englishName || '—'} · {item.category}</small>
+                    </span>
+                    <span className="platform-badges">
+                      {item.implementations.map((p) => <span key={p.id}>{p.platform || '未命名平台'}</span>)}
+                    </span>
+                    <span className="algorithm-updated">{item.updatedAt || '未保存'}</span>
+                    <ChevronRight size={16} />
+                  </button>
                 ))}
               </div>
-            </section>
-
-            <section className="recent-work overview-recent">
-              <div className="group-title">
-                <div>
-                  <div className="eyebrow">RECENT</div>
-                  <h2>最近产出</h2>
-                </div>
-                <button className="text-button" onClick={() => setSection('timeline')}>完整时间线 <ChevronRight size={15} /></button>
-              </div>
-              <div className="recent-grid">
-                {timeline.slice(0, 3).map((item, index) => (
-                  <article key={`${item.date}-${index}`}>
-                    <span>{item.date}</span>
-                    <h3>{item.title}</h3>
-                    <p>{item.detail}</p>
-                  </article>
-                ))}
-              </div>
-            </section>
+            )}
           </div>
         )}
 
-        {section === 'capabilities' && (
-          <div className="page">
-            <SectionIntro eyebrow="CAPABILITIES" title="算法能力" description="每个能力只呈现四件事：做什么、跑在哪里、如何调用、被谁复用。" />
-            <div className="search-field">
-              <Search size={16} />
-              <input placeholder="搜索能力、模型或平台" value={query} onChange={(event) => setQuery(event.target.value)} />
-            </div>
-
-            <div className="detail-list">
-              {filteredCapabilities.map((item) => (
-                <article className="detail-row" key={item.id}>
-                  <div className="detail-primary">
-                    <span className="row-icon large">{item.category === 'Audio' ? <AudioLines size={19} /> : <Boxes size={19} />}</span>
-                    <div>
-                      <div className="detail-title-line"><h2>{item.name}</h2><StatusDot status={item.status} /></div>
-                      <p>{item.description}</p>
-                    </div>
-                  </div>
-                  <dl className="detail-meta">
-                    <div><dt>Model</dt><dd>{item.models.join(' · ')}</dd></div>
-                    <div><dt>Platform</dt><dd>{item.platforms.join(' · ')}</dd></div>
-                    <div><dt>API</dt><dd><code>{item.api}</code></dd></div>
-                    <div><dt>Consumers</dt><dd>{item.consumers.join(' · ')}</dd></div>
-                  </dl>
-                </article>
-              ))}
-            </div>
-          </div>
+        {section === 'capabilities' && editing && (
+          <div className="page editor-page"><AlgorithmEditor algorithm={editing} onChange={setEditing} onSave={saveAlgorithm} onCancel={() => setEditing(null)} /></div>
         )}
 
-        {section === 'benchmarks' && (
-          <div className="page">
-            <SectionIntro eyebrow="BENCHMARKS" title="性能与精度" description="同一能力在不同硬件上的结果放在一张表里，减少解释成本。当前数值仅为页面结构示例。" />
-            <div className="table-shell">
-              <table>
-                <thead>
-                  <tr><th>能力</th><th>硬件</th><th>模型</th><th>Latency</th><th>Throughput</th><th>Memory</th><th>Accuracy</th><th>日期</th></tr>
-                </thead>
-                <tbody>
-                  {benchmarks.map((item, index) => (
-                    <tr key={`${item.capabilityId}-${item.hardware}-${index}`}>
-                      <td><strong>{capabilityName(item.capabilityId)}</strong></td>
-                      <td><span className="hardware-label"><Cpu size={14} />{item.hardware}</span></td>
-                      <td>{item.model}</td>
-                      <td>{item.latencyMs ? `${item.latencyMs} ms` : '—'}</td>
-                      <td>{item.throughput !== undefined ? `${item.throughput} ${item.throughputUnit ?? ''}` : '—'}</td>
-                      <td>{item.memoryGb ? `${item.memoryGb} GB` : '—'}</td>
-                      <td>{item.accuracyLabel}: {item.accuracyValue}</td>
-                      <td>{item.date}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {section === 'pipelines' && (
-          <div className="page">
-            <SectionIntro eyebrow="PIPELINES" title="聚合服务" description="把原子算法组合成业务真正可以直接调用的接口。" />
-            <div className="detail-list">
-              {pipelines.map((item) => (
-                <article className="pipeline-row" key={item.id}>
-                  <div className="pipeline-heading">
-                    <span className="row-icon large"><Workflow size={19} /></span>
-                    <div>
-                      <div className="detail-title-line"><h2>{item.name}</h2><StatusDot status={item.status} /></div>
-                      <p>{item.description}</p>
-                    </div>
-                  </div>
-                  <div className="pipeline-chain">
-                    <span>业务输入</span><ChevronRight size={15} />
-                    <span className="pipeline-capabilities">{item.capabilities.map((id) => capabilityName(id)).join(' · ')}</span>
-                    <ChevronRight size={15} /><code>{item.endpoint}</code>
-                  </div>
-                  <div className="secondary-line">Consumers · {item.consumers.join(' · ')}</div>
-                </article>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {section === 'projects' && (
-          <div className="page">
-            <SectionIntro eyebrow="PROJECTS" title="项目交付" description="不是罗列功能，而是说明问题、工程实现和最终形成的价值。" />
-            <div className="project-list">
-              {projects.map((item) => (
-                <article className="project-row" key={item.id}>
-                  <header>
-                    <div>
-                      <div className="detail-title-line"><h2>{item.name}</h2><StatusDot status={item.status} /></div>
-                      <p>{item.problem}</p>
-                    </div>
-                    <Layers3 size={20} />
-                  </header>
-                  <div className="project-body">
-                    <div>
-                      <span className="meta-label">Engineering</span>
-                      <ul>{item.deliverables.map((value) => <li key={value}>{value}</li>)}</ul>
-                    </div>
-                    <div>
-                      <span className="meta-label">Capabilities</span>
-                      <p>{item.capabilities.map((id) => capabilityName(id)).join(' · ')}</p>
-                    </div>
-                    <div>
-                      <span className="meta-label">Impact</span>
-                      <p className="impact-text">{item.impact}</p>
-                    </div>
-                  </div>
-                </article>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {section === 'timeline' && (
-          <div className="page">
-            <SectionIntro eyebrow="TIMELINE" title="工程时间线" description="按时间留下可追溯的能力建设、测试、重构与交付记录。" />
-            <div className="timeline-list">
-              {timeline.map((item, index) => (
-                <article className="timeline-row" key={`${item.date}-${item.title}-${index}`}>
-                  <div className="timeline-date">{item.date}</div>
-                  <div className="timeline-line"><span /></div>
-                  <div className="timeline-copy">
-                    <div className="timeline-type">{item.type}</div>
-                    <h2>{item.title}</h2>
-                    <p>{item.detail}</p>
-                  </div>
-                </article>
-              ))}
-            </div>
-          </div>
-        )}
+        {section === 'benchmarks' && <div className="page"><EmptyState title="还没有 Benchmark" description={`${benchmarks.length} 条数据。完成算法能力后再录入性能与精度。`} /></div>}
+        {section === 'pipelines' && <div className="page"><EmptyState title="还没有聚合服务" description={`${pipelines.length} 条数据。后续从已有算法能力中组合。`} /></div>}
+        {section === 'projects' && <div className="page"><EmptyState title="还没有项目" description={`${projects.length} 条数据。项目页后续填写算法部署节点、实例和端口。`} /></div>}
+        {section === 'timeline' && <div className="page"><EmptyState title="还没有时间线" description={`${timeline.length} 条数据。后续由真实变更和交付记录产生。`} /></div>}
       </main>
-
-      {openedRoute && <ExpandedProjectGraph route={openedRoute} onClose={() => setOpenProjectId(null)} />}
     </div>
   )
 }
