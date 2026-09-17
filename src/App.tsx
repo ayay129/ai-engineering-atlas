@@ -5,11 +5,11 @@ import {
   CirclePlus,
   Cpu,
   Network,
+  Pencil,
   Plus,
   Save,
   Search,
   Trash2,
-  Workflow,
 } from 'lucide-react'
 import {
   algorithms as seedAlgorithms,
@@ -181,6 +181,8 @@ function AlgorithmEditor({
         <button className="back-button" type="button" onClick={onCancel}>算法能力</button>
         <ChevronRight size={14} />
         <span>{algorithm.name || '新建算法'}</span>
+        <ChevronRight size={14} />
+        <span>编辑</span>
         <div className="editor-toolbar-spacer" />
         <button className="save-button" type="button" onClick={onSave}><Save size={15} />保存</button>
       </div>
@@ -255,6 +257,115 @@ function AlgorithmEditor({
   )
 }
 
+function DetailItem({ label, value, mono = false }: { label: string; value?: string; mono?: boolean }) {
+  return (
+    <div className="algorithm-detail-item">
+      <span>{label}</span>
+      <strong className={mono ? 'mono-value' : ''}>{value || '—'}</strong>
+    </div>
+  )
+}
+
+function AlgorithmDetail({
+  algorithm,
+  onBack,
+  onEdit,
+}: {
+  algorithm: Algorithm
+  onBack: () => void
+  onEdit: () => void
+}) {
+  return (
+    <div className="algorithm-detail">
+      <div className="editor-toolbar">
+        <button className="back-button" type="button" onClick={onBack}>算法能力</button>
+        <ChevronRight size={14} />
+        <span>{algorithm.name}</span>
+        <div className="editor-toolbar-spacer" />
+        <button className="detail-edit-button" type="button" onClick={onEdit}><Pencil size={14} />编辑</button>
+      </div>
+
+      <header className="algorithm-detail-hero">
+        <div className="algorithm-detail-title-line">
+          <div>
+            <div className="eyebrow">ALGORITHM CAPABILITY</div>
+            <h1>{algorithm.name}</h1>
+            <p>{algorithm.englishName || '—'} · {algorithm.category}</p>
+          </div>
+          <StatusDot status={algorithm.status} />
+        </div>
+        {algorithm.description && <p className="algorithm-detail-description">{algorithm.description}</p>}
+      </header>
+
+      <section className="algorithm-detail-section">
+        <div className="algorithm-detail-section-head">
+          <div><span>01</span><h2>基础信息</h2></div>
+        </div>
+        <div className="algorithm-detail-panel algorithm-detail-grid">
+          <DetailItem label="英文名" value={algorithm.englishName} />
+          <DetailItem label="分类" value={algorithm.category} />
+          <DetailItem label="Owner" value={algorithm.owner} />
+          <DetailItem label="Updated" value={algorithm.updatedAt} />
+        </div>
+      </section>
+
+      <section className="algorithm-detail-section">
+        <div className="algorithm-detail-section-head">
+          <div><span>02</span><h2>标准接口</h2></div>
+        </div>
+        <div className="algorithm-detail-panel algorithm-api-summary">
+          <DetailItem label="Protocol" value={algorithm.api.protocol} />
+          <DetailItem label="Method" value={algorithm.api.method} />
+          <DetailItem label="Endpoint" value={algorithm.api.endpoint} mono />
+        </div>
+      </section>
+
+      <section className="algorithm-detail-section">
+        <div className="algorithm-detail-section-head">
+          <div><span>03</span><h2>平台实现</h2></div>
+          <p>{algorithm.implementations.length} 个平台实现</p>
+        </div>
+
+        <div className="platform-detail-list">
+          {algorithm.implementations.map((implementation) => (
+            <article className="platform-detail-card" key={implementation.id}>
+              <header>
+                <div className="platform-detail-title"><Cpu size={17} /><h3>{implementation.platform || '未命名平台'}</h3></div>
+                <StatusDot status={implementation.status} />
+              </header>
+              <div className="platform-detail-grid">
+                <DetailItem label="支持硬件" value={implementation.hardware} />
+                <DetailItem label="服务版本" value={implementation.serviceVersion} />
+                <DetailItem label="模型" value={implementation.modelName} />
+                <DetailItem label="模型版本" value={implementation.modelVersion} />
+                <DetailItem label="Runtime" value={implementation.runtime} />
+                <DetailItem label="Framework" value={implementation.framework} />
+                <DetailItem label="GitLab" value={implementation.gitlab} mono />
+                <DetailItem label="Branch" value={implementation.branch} mono />
+                <DetailItem label="镜像" value={implementation.image} mono />
+                <DetailItem label="默认端口" value={implementation.containerPort} mono />
+                <DetailItem label="Healthcheck" value={implementation.healthcheck} mono />
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="algorithm-detail-section algorithm-related-section">
+        <div className="algorithm-detail-section-head">
+          <div><span>04</span><h2>关联信息</h2></div>
+          <p>后续从其他模块自动关联，不在算法基础信息里重复填写。</p>
+        </div>
+        <div className="algorithm-related-grid">
+          <div><span>Benchmark</span><strong>0</strong><small>性能与精度</small></div>
+          <div><span>Projects</span><strong>0</strong><small>关联项目</small></div>
+          <div><span>Timeline</span><strong>0</strong><small>变更记录</small></div>
+        </div>
+      </section>
+    </div>
+  )
+}
+
 function App() {
   const [section, setSection] = useState<Section>('overview')
   const [query, setQuery] = useState('')
@@ -265,6 +376,7 @@ function App() {
     }
     return seedAlgorithms
   })
+  const [viewingId, setViewingId] = useState<string | null>(null)
   const [editing, setEditing] = useState<Algorithm | null>(null)
 
   useEffect(() => {
@@ -277,25 +389,34 @@ function App() {
     return algorithms.filter((item) => [item.name, item.englishName, item.category, item.description, ...item.implementations.map((p) => p.platform)].join(' ').toLowerCase().includes(value))
   }, [algorithms, query])
 
+  const viewingAlgorithm = viewingId ? algorithms.find((item) => item.id === viewingId) ?? null : null
+
   const saveAlgorithm = () => {
     if (!editing) return
     const saved: Algorithm = { ...editing, updatedAt: new Date().toISOString().slice(0, 10) }
     setAlgorithms((current) => current.some((item) => item.id === saved.id)
       ? current.map((item) => item.id === saved.id ? saved : item)
       : [...current, saved])
+    setViewingId(saved.id)
+    setEditing(null)
+  }
+
+  const changeSection = (next: Section) => {
+    setSection(next)
+    setViewingId(null)
     setEditing(null)
   }
 
   return (
     <div className="app-shell">
       <header className="glass-nav">
-        <button className="brand-button" onClick={() => { setSection('overview'); setEditing(null) }} aria-label="返回总览">
+        <button className="brand-button" onClick={() => changeSection('overview')} aria-label="返回总览">
           <span className="brand-symbol"><Network size={16} strokeWidth={2} /></span>
           <span>AI Engineering Atlas</span>
         </button>
         <nav className="nav-tabs" aria-label="主导航">
           {sections.map((item) => (
-            <button key={item.id} className={section === item.id ? 'active' : ''} onClick={() => { setSection(item.id); setEditing(null) }}>{item.label}</button>
+            <button key={item.id} className={section === item.id ? 'active' : ''} onClick={() => changeSection(item.id)}>{item.label}</button>
           ))}
         </nav>
         <div className="nav-meta">Internal</div>
@@ -313,7 +434,7 @@ function App() {
           </div>
         )}
 
-        {section === 'capabilities' && !editing && (
+        {section === 'capabilities' && !viewingAlgorithm && !editing && (
           <div className="page">
             <div className="capability-page-head">
               <div>
@@ -321,7 +442,7 @@ function App() {
                 <h1>算法能力</h1>
                 <p>先建立“我有哪些算法能力”，平台实现作为主要工程维度。</p>
               </div>
-              <button className="new-algorithm-button" type="button" onClick={() => setEditing(emptyAlgorithm())}><CirclePlus size={16} />新建算法</button>
+              <button className="new-algorithm-button" type="button" onClick={() => { setViewingId(null); setEditing(emptyAlgorithm()) }}><CirclePlus size={16} />新建算法</button>
             </div>
 
             {algorithms.length > 0 && (
@@ -333,7 +454,7 @@ function App() {
             ) : (
               <div className="algorithm-list">
                 {filteredAlgorithms.map((item) => (
-                  <button className="algorithm-list-row" key={item.id} onClick={() => setEditing(structuredClone(item))}>
+                  <button className="algorithm-list-row" key={item.id} onClick={() => setViewingId(item.id)}>
                     <span className="row-icon large"><Boxes size={19} /></span>
                     <span className="algorithm-list-main">
                       <span className="algorithm-name-line"><strong>{item.name}</strong><StatusDot status={item.status} /></span>
@@ -351,8 +472,25 @@ function App() {
           </div>
         )}
 
+        {section === 'capabilities' && viewingAlgorithm && !editing && (
+          <div className="page detail-page">
+            <AlgorithmDetail
+              algorithm={viewingAlgorithm}
+              onBack={() => setViewingId(null)}
+              onEdit={() => setEditing(structuredClone(viewingAlgorithm))}
+            />
+          </div>
+        )}
+
         {section === 'capabilities' && editing && (
-          <div className="page editor-page"><AlgorithmEditor algorithm={editing} onChange={setEditing} onSave={saveAlgorithm} onCancel={() => setEditing(null)} /></div>
+          <div className="page editor-page">
+            <AlgorithmEditor
+              algorithm={editing}
+              onChange={setEditing}
+              onSave={saveAlgorithm}
+              onCancel={() => setEditing(null)}
+            />
+          </div>
         )}
 
         {section === 'benchmarks' && <div className="page"><EmptyState title="还没有 Benchmark" description={`${benchmarks.length} 条数据。完成算法能力后再录入性能与精度。`} /></div>}
