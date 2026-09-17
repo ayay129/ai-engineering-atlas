@@ -257,15 +257,6 @@ function AlgorithmEditor({
   )
 }
 
-function DetailItem({ label, value, mono = false }: { label: string; value?: string; mono?: boolean }) {
-  return (
-    <div className="algorithm-detail-item">
-      <span>{label}</span>
-      <strong className={mono ? 'mono-value' : ''}>{value || '—'}</strong>
-    </div>
-  )
-}
-
 function AlgorithmDetail({
   algorithm,
   onBack,
@@ -275,8 +266,14 @@ function AlgorithmDetail({
   onBack: () => void
   onEdit: () => void
 }) {
+  const [platformId, setPlatformId] = useState(algorithm.implementations[0]?.id ?? '')
+  const activePlatform = algorithm.implementations.find((item) => item.id === platformId) ?? algorithm.implementations[0]
+  const sharedPort = algorithm.implementations.find((item) => item.containerPort)?.containerPort || '—'
+  const endpoint = algorithm.api.endpoint || '/'
+  const callAddress = sharedPort === '—' ? `http://<host>${endpoint}` : `http://<host>:${sharedPort}${endpoint}`
+
   return (
-    <div className="algorithm-detail">
+    <div className="algorithm-detail compact-detail">
       <div className="editor-toolbar">
         <button className="back-button" type="button" onClick={onBack}>算法能力</button>
         <ChevronRight size={14} />
@@ -285,82 +282,73 @@ function AlgorithmDetail({
         <button className="detail-edit-button" type="button" onClick={onEdit}><Pencil size={14} />编辑</button>
       </div>
 
-      <header className="algorithm-detail-hero">
-        <div className="algorithm-detail-title-line">
+      <header className="compact-detail-hero">
+        <div className="compact-title-row">
           <div>
-            <div className="eyebrow">ALGORITHM CAPABILITY</div>
             <h1>{algorithm.name}</h1>
             <p>{algorithm.englishName || '—'} · {algorithm.category}</p>
           </div>
           <StatusDot status={algorithm.status} />
         </div>
-        {algorithm.description && <p className="algorithm-detail-description">{algorithm.description}</p>}
+        {algorithm.description && <p className="compact-description">{algorithm.description}</p>}
       </header>
 
-      <section className="algorithm-detail-section">
-        <div className="algorithm-detail-section-head">
-          <div><span>01</span><h2>基础信息</h2></div>
-        </div>
-        <div className="algorithm-detail-panel algorithm-detail-grid">
-          <DetailItem label="英文名" value={algorithm.englishName} />
-          <DetailItem label="分类" value={algorithm.category} />
-          <DetailItem label="Owner" value={algorithm.owner} />
-          <DetailItem label="Updated" value={algorithm.updatedAt} />
-        </div>
-      </section>
-
-      <section className="algorithm-detail-section">
-        <div className="algorithm-detail-section-head">
-          <div><span>02</span><h2>标准接口</h2></div>
-        </div>
-        <div className="algorithm-detail-panel algorithm-api-summary">
-          <DetailItem label="Protocol" value={algorithm.api.protocol} />
-          <DetailItem label="Method" value={algorithm.api.method} />
-          <DetailItem label="Endpoint" value={algorithm.api.endpoint} mono />
+      <section className="compact-call-section">
+        <h2>如何调用</h2>
+        <div className="call-card">
+          <div className="call-command">
+            <span className="method-badge">{algorithm.api.method || 'POST'}</span>
+            <code>{callAddress}</code>
+          </div>
+          <div className="call-meta">
+            <span><small>Protocol</small><strong>{algorithm.api.protocol || '—'}</strong></span>
+            <span><small>Port</small><strong>{sharedPort}</strong></span>
+            <span><small>Endpoint</small><strong>{endpoint}</strong></span>
+          </div>
         </div>
       </section>
 
-      <section className="algorithm-detail-section">
-        <div className="algorithm-detail-section-head">
-          <div><span>03</span><h2>平台实现</h2></div>
-          <p>{algorithm.implementations.length} 个平台实现</p>
+      <section className="compact-platform-section">
+        <div className="compact-section-head">
+          <h2>平台实现</h2>
+          <div className="platform-tabs" role="tablist" aria-label="平台实现">
+            {algorithm.implementations.map((implementation) => (
+              <button
+                key={implementation.id}
+                type="button"
+                role="tab"
+                aria-selected={activePlatform?.id === implementation.id}
+                className={activePlatform?.id === implementation.id ? 'active' : ''}
+                onClick={() => setPlatformId(implementation.id)}
+              >
+                {implementation.platform || '未命名平台'}
+              </button>
+            ))}
+          </div>
         </div>
 
-        <div className="platform-detail-list">
-          {algorithm.implementations.map((implementation) => (
-            <article className="platform-detail-card" key={implementation.id}>
-              <header>
-                <div className="platform-detail-title"><Cpu size={17} /><h3>{implementation.platform || '未命名平台'}</h3></div>
-                <StatusDot status={implementation.status} />
-              </header>
-              <div className="platform-detail-grid">
-                <DetailItem label="支持硬件" value={implementation.hardware} />
-                <DetailItem label="服务版本" value={implementation.serviceVersion} />
-                <DetailItem label="模型" value={implementation.modelName} />
-                <DetailItem label="模型版本" value={implementation.modelVersion} />
-                <DetailItem label="Runtime" value={implementation.runtime} />
-                <DetailItem label="Framework" value={implementation.framework} />
-                <DetailItem label="GitLab" value={implementation.gitlab} mono />
-                <DetailItem label="Branch" value={implementation.branch} mono />
-                <DetailItem label="镜像" value={implementation.image} mono />
-                <DetailItem label="默认端口" value={implementation.containerPort} mono />
-                <DetailItem label="Healthcheck" value={implementation.healthcheck} mono />
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section className="algorithm-detail-section algorithm-related-section">
-        <div className="algorithm-detail-section-head">
-          <div><span>04</span><h2>关联信息</h2></div>
-          <p>后续从其他模块自动关联，不在算法基础信息里重复填写。</p>
-        </div>
-        <div className="algorithm-related-grid">
-          <div><span>Benchmark</span><strong>0</strong><small>性能与精度</small></div>
-          <div><span>Projects</span><strong>0</strong><small>关联项目</small></div>
-          <div><span>Timeline</span><strong>0</strong><small>变更记录</small></div>
-        </div>
+        {activePlatform ? (
+          <div className="platform-summary-card">
+            <div className="platform-summary-head">
+              <div className="platform-summary-title"><Cpu size={17} /><strong>{activePlatform.platform || '未命名平台'}</strong></div>
+              <StatusDot status={activePlatform.status} />
+            </div>
+            <dl className="platform-summary-list">
+              <div><dt>支持硬件</dt><dd>{activePlatform.hardware || '—'}</dd></div>
+              <div><dt>服务版本</dt><dd>{activePlatform.serviceVersion || '—'}</dd></div>
+              <div><dt>Runtime</dt><dd>{activePlatform.runtime || '—'}</dd></div>
+              <div><dt>Framework</dt><dd>{activePlatform.framework || '—'}</dd></div>
+              <div><dt>模型</dt><dd>{activePlatform.modelName || '—'}</dd></div>
+              <div><dt>模型版本</dt><dd>{activePlatform.modelVersion || '—'}</dd></div>
+              <div className="wide"><dt>镜像</dt><dd><code>{activePlatform.image || '—'}</code></dd></div>
+              <div className="wide"><dt>GitLab</dt><dd><code>{activePlatform.gitlab || '—'}</code></dd></div>
+              <div><dt>Branch</dt><dd><code>{activePlatform.branch || '—'}</code></dd></div>
+              <div><dt>Healthcheck</dt><dd><code>{activePlatform.healthcheck || '—'}</code></dd></div>
+            </dl>
+          </div>
+        ) : (
+          <div className="platform-summary-card empty-platform-summary">还没有平台实现</div>
+        )}
       </section>
     </div>
   )
